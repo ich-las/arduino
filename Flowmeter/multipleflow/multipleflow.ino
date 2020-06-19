@@ -1,38 +1,126 @@
 #include <SPI.h>
-#include <ESP8266WiFi.h> //esp8266 library
-#include <ESP8266mDNS.h>
-#include <BlynkSimpleEsp8266.h> //blynk library
-#include <WiFiUdp.h>  
-#include <ArduinoOTA.h>
-#include <LCDWIKI_GUI.h> //Core graphics library
-#include <LCDWIKI_SPI.h> //Hardware-specific library
+#define BLYNK_TIMEOUT_MS  500  // must be BEFORE BlynkSimpleEsp8266.h doesn't work !!!
+#define BLYNK_HEARTBEAT   17   // must be BEFORE BlynkSimpleEsp8266.h works OK as 17s
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <ESPmDNS.h>
+#include <WebServer.h>
+#include <BlynkSimpleEsp32_SSL.h>
+#include <Adafruit_GFX.h>
+#include <ILI9225_kbv.h>
+#include <Update.h>
 
-#ifndef STASSID
-#define STASSID "CNI Indonesia"
-#define STAPSK  "cni12344321"
-#endif
+//wifi initialization
+//char auth[] = "aU1Tw08w1Uq77C91FGtPJsm9l-dwDY79";
+char auth[] = "bSCmZrq2uhfogScohN1dWkYyW2iBjYvR";
+//const char* server = "blynk.ichlas.ga";
+unsigned int port = 32770;                         
+const char* host = "esp32";
+char ssid[] = "CNI Indonesia";
+char pass[] = "cni12344321";
 
-const char* ssid = STASSID;
-const char* password = STAPSK;
+//webserver
+WebServer server(80);
+
+/*
+ * Login page
+ */
+
+const char* loginIndex = 
+ "<form name='loginForm'>"
+    "<table width='20%' bgcolor='A09F9F' align='center'>"
+        "<tr>"
+            "<td colspan=2>"
+                "<center><font size=4><b>ESP32 Login Page</b></font></center>"
+                "<br>"
+            "</td>"
+            "<br>"
+            "<br>"
+        "</tr>"
+        "<td>Username:</td>"
+        "<td><input type='text' size=25 name='userid'><br></td>"
+        "</tr>"
+        "<br>"
+        "<br>"
+        "<tr>"
+            "<td>Password:</td>"
+            "<td><input type='Password' size=25 name='pwd'><br></td>"
+            "<br>"
+            "<br>"
+        "</tr>"
+        "<tr>"
+            "<td><input type='submit' onclick='check(this.form)' value='Login'></td>"
+        "</tr>"
+    "</table>"
+"</form>"
+"<script>"
+    "function check(form)"
+    "{"
+    "if(form.userid.value=='admin' && form.pwd.value=='admin')"
+    "{"
+    "window.open('/serverIndex')"
+    "}"
+    "else"
+    "{"
+    " alert('Error Password or Username')/*displays error message*/"
+    "}"
+    "}"
+"</script>";
+ 
+/*
+ * Server Index Page
+ */
+ 
+const char* serverIndex = 
+"<script src='https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js'></script>"
+"<form method='POST' action='#' enctype='multipart/form-data' id='upload_form'>"
+   "<input type='file' name='update'>"
+        "<input type='submit' value='Update'>"
+    "</form>"
+ "<div id='prg'>progress: 0%</div>"
+ "<script>"
+  "$('form').submit(function(e){"
+  "e.preventDefault();"
+  "var form = $('#upload_form')[0];"
+  "var data = new FormData(form);"
+  " $.ajax({"
+  "url: '/update',"
+  "type: 'POST',"
+  "data: data,"
+  "contentType: false,"
+  "processData:false,"
+  "xhr: function() {"
+  "var xhr = new window.XMLHttpRequest();"
+  "xhr.upload.addEventListener('progress', function(evt) {"
+  "if (evt.lengthComputable) {"
+  "var per = evt.loaded / evt.total;"
+  "$('#prg').html('progress: ' + Math.round(per*100) + '%');"
+  "}"
+  "}, false);"
+  "return xhr;"
+  "},"
+  "success:function(d, s) {"
+  "console.log('success!')" 
+ "},"
+ "error: function (a, b, c) {"
+ "}"
+ "});"
+ "});"
+ "</script>";
   
 //Port Initialization
 #define BLYNK_PRINT Serial
+
 //#define TOMBOL 16
-#define SENSOR1  D3
-#define SENSOR2  D4
-#define SENSOR3  D6
-#define SENSOR4  D8
-#define SENSOR5  3
-#define SENSOR6  1
+#define SENSOR1  32
+#define SENSOR2  33
+#define SENSOR3  12
+#define SENSOR4  26
+#define SENSOR5  27
+#define SENSOR6  14
 
 //LCD Definition
-#define MODEL ILI9225
-#define CS   D0    
-#define CD   D2
-#define RST  -1
-#define LED  -1   //if you don't need to control the LED pin,you should set it to -1 and set it to 3.3V
-//TFT LCD Initialization
-LCDWIKI_SPI mylcd(MODEL,CS,CD,RST,LED); //model,cs,dc,reset,led
+ILI9225_kbv tft(22, 17, 5);
 
 //LCD Color Definition
 #define BLACK   0x0000
@@ -58,23 +146,22 @@ LCDWIKI_SPI mylcd(MODEL,CS,CD,RST,LED); //model,cs,dc,reset,led
 #define TOT5 V10 
 #define TOT6 V12
 
-//wifi initialization
-char auth[] = "MTddsDPyy9JRV7uGfb1Z9mm9o5fMv6-N";
-
-//led initialization
-boolean ledState = LOW;
+//blynk timer
+BlynkTimer timer;
+bool on = 0;
+bool online = 0;
 
 //calculation variable declaration
-int interval = 1000;
+int interval = 500;
 long currentMillis = 0;
 long previousMillis = 0;
 
-float CF1 = 6.75;
-float CF2 = 6.75;
-float CF3 = 6.75;
-float CF4 = 6.75;
-float CF5 = 6.75;
-float CF6 = 6.75;
+float CF1 = 7;
+float CF2 = 7;
+float CF3 = 7;
+float CF4 = 7;
+float CF5 = 7;
+float CF6 = 7;
 
 volatile byte PC1,PC2,PC3,PC4,PC5,PC6;
 byte PS1,PS2,PS3,PS4,PS5,PS6 = 0;
@@ -116,81 +203,86 @@ void IRAM_ATTR pulseCounter6()
 
 void setup()
 {
-  //tft.begin();
+  //serial initialization
   Serial.begin(115200);
+
+  //LCD Initialization
+  tft.begin();
+  delay(1000);
+  tft.fillScreen(BLACK);
+  tft.fillScreen(RED);
+  tft.fillScreen(GREEN);
+  tft.fillScreen(BLUE);
+  testTriangles();
+  testFilledTriangles();
+  tft.fillScreen(WHITE);
+    
   //OTA Initialization
   Serial.println("\nBooting");  
-  WiFi.mode(WIFI_STA);  
-  WiFi.begin(ssid, password);  
-  while (WiFi.waitForConnectResult() != WL_CONNECTED)  
-  {  
-    Serial.println("Connection Failed! Rebooting...");  
-    delay(5000);  
-    ESP.restart();  
+  WiFi.mode(WIFI_STA);
+  //Blynk.begin(auth);
+  Blynk.config(auth);
+  Blynk.connect();
+  CheckConnection();
+  timer.setInterval(5000L, CheckConnection); 
+  timer.setInterval(3000L, myTimerEvent); 
+ 
+  /*use mdns for host name resolution*/
+  if (!MDNS.begin(host)) { //http://esp32.local
+    Serial.println("Error setting up MDNS responder!");
+    while (1) {
+      delay(1000);
+    }
   }
-
-   ArduinoOTA.onStart([]()  
-  {  
-    String type;  
-    if (ArduinoOTA.getCommand() == U_FLASH)  
-    {  
-      type = "sketch";  
-    }   
-    else  
-    { // U_SPIFFS  
-      type = "filesystem";  
-    }  
-    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()  
-    Serial.println("Start updating " + type);  
-  });  
-  
-  ArduinoOTA.onEnd([]() {  
-    Serial.println("\nUpdate Finished");  
-  });  
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {  
-    Serial.printf("\nProgress: %u%%\r", (progress / (total / 100)));  
-  });  
-  ArduinoOTA.onError([](ota_error_t error) {  
-    Serial.printf("Error[%u]: ", error);  
-    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");  
-    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");  
-    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");  
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");  
-    else if (error == OTA_END_ERROR) Serial.println("End Failed");  
-  });  
-    
-  ArduinoOTA.begin();  
+  Serial.println("mDNS responder started");
+  /*return index page which is stored in serverIndex */
+  server.on("/", HTTP_GET, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/html", loginIndex);
+  });
+  server.on("/serverIndex", HTTP_GET, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/html", serverIndex);
+  });
+  /*handling uploading firmware file */
+  server.on("/update", HTTP_POST, []() {
+    server.sendHeader("Connection", "close");
+    server.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+    ESP.restart();
+  }, []() {
+    HTTPUpload& upload = server.upload();
+    if (upload.status == UPLOAD_FILE_START) {
+      Serial.printf("Update: %s\n", upload.filename.c_str());
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) { //start with max available size
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_WRITE) {
+      /* flashing firmware to ESP*/
+      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
+        Update.printError(Serial);
+      }
+    } else if (upload.status == UPLOAD_FILE_END) {
+      if (Update.end(true)) { //true to set the size to the current progress
+        Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+      } else {
+        Update.printError(Serial);
+      }
+    }
+  });
+  server.begin();
   Serial.println("Ready");
   Serial.print("Connected to ");
   Serial.println(WiFi.SSID());   
   Serial.print("IP address: ");  
   Serial.println(WiFi.localIP());  
-  
-  //blynk initialization
-  Blynk.begin(auth, ssid, password);
-  delay(1000);
-  
-  //pin mode for LED & Button
-  //pinMode(LED_BUILTIN, OUTPUT);
-  //pinMode(TOMBOL, INPUT_PULLUP);
-    
-  
-  //Display Init
-  mylcd.Init_LCD(); //initialize lcd
-  mylcd.Fill_Screen(0xFFFF); //display white
-
+   
   //pinmode setting for flowmeter
-  pinMode(SENSOR1, INPUT_PULLUP);
-  pinMode(SENSOR2, INPUT_PULLUP);
-  pinMode(SENSOR3, INPUT_PULLUP);
-  pinMode(SENSOR4, INPUT_PULLUP);
-  pinMode(SENSOR5, INPUT_PULLUP);
-  pinMode(SENSOR6, INPUT_PULLUP);
-
-  digitalWrite(SENSOR6,HIGH);
-  digitalWrite(SENSOR1,HIGH);
-  digitalWrite(SENSOR2,HIGH);
-  digitalWrite(SENSOR4,LOW);
+  pinMode(SENSOR1, INPUT);
+  pinMode(SENSOR2, INPUT);
+  pinMode(SENSOR3, INPUT);
+  pinMode(SENSOR4, INPUT);
+  pinMode(SENSOR5, INPUT);
+  pinMode(SENSOR6, INPUT);
 
   //variable zeroing
   PC1 = 0;
@@ -219,12 +311,12 @@ void setup()
             TM6 = 0;
 
 //Interrupt Function
-  attachInterrupt(digitalPinToInterrupt(SENSOR1), pulseCounter1, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SENSOR2), pulseCounter2, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SENSOR3), pulseCounter3, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SENSOR4), pulseCounter4, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SENSOR5), pulseCounter5, FALLING);
-  attachInterrupt(digitalPinToInterrupt(SENSOR6), pulseCounter6, FALLING);
+  attachInterrupt(digitalPinToInterrupt(SENSOR1), pulseCounter1, RISING);
+  attachInterrupt(digitalPinToInterrupt(SENSOR2), pulseCounter2, RISING);
+  attachInterrupt(digitalPinToInterrupt(SENSOR3), pulseCounter3, RISING);
+  attachInterrupt(digitalPinToInterrupt(SENSOR4), pulseCounter4, RISING);
+  attachInterrupt(digitalPinToInterrupt(SENSOR5), pulseCounter5, RISING);
+  attachInterrupt(digitalPinToInterrupt(SENSOR6), pulseCounter6, RISING);
 
   //milis reset
   previousMillis = 0;
@@ -268,12 +360,12 @@ currentMillis = millis();
 
 void flowcounter()
 {
-FR1 = ((1000.0 / (millis() - previousMillis)) * PS1) / CF1;
-FR2 = ((1000.0 / (millis() - previousMillis)) * PS2) / CF2;
-FR3 = ((1000.0 / (millis() - previousMillis)) * PS3) / CF3;
-FR4 = ((1000.0 / (millis() - previousMillis)) * PS4) / CF4;
-FR5 = ((1000.0 / (millis() - previousMillis)) * PS5) / CF5;
-FR6 = ((1000.0 / (millis() - previousMillis)) * PS6) / CF6;
+FR1 = ((1000.0 / (millis() - previousMillis)) * PS1) / CF1 ;
+FR2 = ((1000.0 / (millis() - previousMillis)) * PS2) / CF2 ;
+FR3 = ((1000.0 / (millis() - previousMillis)) * PS3) / CF3 ;
+FR4 = ((1000.0 / (millis() - previousMillis)) * PS4) / CF4 ;
+FR5 = ((1000.0 / (millis() - previousMillis)) * PS5) / CF5 ;
+FR6 = ((1000.0 / (millis() - previousMillis)) * PS6) / CF6 ;
 
 previousMillis = millis();
 
@@ -292,62 +384,175 @@ TM1 += FM1;
 }
 
 //LCD DISPLAY
-void IRAM_ATTR lcdshow()
+void lcdshow()
 {
-  mylcd.Set_Text_Mode(0);
-  mylcd.Set_Text_Size(1);
-  mylcd.Set_Text_Back_colour(WHITE);
-  mylcd.Set_Text_colour(BLACK);
+  tft.setTextSize(1);
+  tft.setTextColor(BLACK,WHITE);
+  tft.setCursor(0,0);
+  tft.println("");
   
-  mylcd.Print_String("PLS FLOWRATE  : ", 2,2);
-  mylcd.Print_Number_Float(FR1*60,2 ,100 ,2 , '.', 0, ' ');
-  mylcd.Print_String("L/H", RIGHT,2);
-  mylcd.Print_String("PLS TOTALIZER : ", 2,11);
-  mylcd.Print_Number_Int(TM1/1000,100 ,11 ,0, ' ',10);
-  mylcd.Print_String("L", RIGHT,11);
+  tft.print("PLS FLOWRATE : ");
+  tft.println(FR1*60);
+  tft.setCursor(140,8);
+  tft.println("L/H");
+  tft.print("PLS TOTALIZER: ");
+  tft.println(TM1/1000);
+  tft.setCursor(140,16);
+  tft.println("L");
+  tft.println(""); 
+  
+  tft.print("R1 FLOWRATE  : ");
+  tft.println(FR2*60);
+  tft.setCursor(140,32);
+  tft.println("L/H");
+  tft.print("R1 TOTALIZER : ");
+  tft.println(TM2/1000);
+  tft.setCursor(140,40);
+  tft.println("L");
+  tft.println("");  
 
-  mylcd.Print_String("R1 FLOWRATE   : ", 2,29);
-  mylcd.Print_Number_Float(FR2*60,2 ,100 ,29 , '.', 0, ' ');
-  mylcd.Print_String("L/H", RIGHT,29);
-  mylcd.Print_String("R1 TOTALIZER  : ", 2,38);
-  mylcd.Print_Number_Int(TM2/1000,100 ,38 ,0, ' ',10);
-  mylcd.Print_String("L", RIGHT,38);  
+  tft.print("STC FLOWRATE : ");
+  tft.println(FR3*60);
+  tft.setCursor(140,56);
+  tft.println("L/H");
+  tft.print("STC TOTALIZER: ");
+  tft.println(TM3/1000);
+  tft.setCursor(140,64);
+  tft.println("L");
+  tft.println("");  
 
-  mylcd.Print_String("STC FLOWRATE  : ", 2,56);
-  mylcd.Print_Number_Float(FR3*60,2 ,100 ,56 , '.', 0, ' ');
-  mylcd.Print_String("L/H", RIGHT,56);
-  mylcd.Print_String("STC TOTALIZER : ", 2,65);
-  mylcd.Print_Number_Int(TM3/1000,100 ,65 ,0, ' ',10);
-  mylcd.Print_String("L", RIGHT,65);  
+  tft.print("ENI FLOWRATE : ");
+  tft.println(FR4*60);
+  tft.setCursor(140,80);
+  tft.println("L/H");
+  tft.print("ENI TOTALIZER: ");
+  tft.println(TM4/1000);
+  tft.setCursor(140,88);
+  tft.println("L");  
+  tft.println("");
 
-  mylcd.Print_String("ENI FLOWRATE  : ", 2,83);
-  mylcd.Print_Number_Float(FR4*60,2 ,100 ,83 , '.', 0, ' ');
-  mylcd.Print_String("L/H", RIGHT,83);
-  mylcd.Print_String("ENI TOTALIZER : ", 2,92);
-  mylcd.Print_Number_Int(TM4/1000,100 ,92 ,0, ' ',10);
-  mylcd.Print_String("L", RIGHT,92);  
+  tft.print("NHP FLOWRATE : ");
+  tft.println(FR5*60);
+  tft.setCursor(140,104);
+  tft.println("L/H");
+  tft.print("NHP TOTALIZER: ");
+  tft.println(TM5/1000);
+  tft.setCursor(140,112);
+  tft.println("L"); 
+  tft.println(""); 
 
-  mylcd.Print_String("NHP FLOWRATE  : ", 2,110);
-  mylcd.Print_Number_Float(FR5*60,2 ,100 ,110 , '.', 0, ' ');
-  mylcd.Print_String("L/H", RIGHT,110);
-  mylcd.Print_String("NHP TOTALIZER : ", 2,119);
-  mylcd.Print_Number_Int(TM5/1000,100 ,119 ,0, ' ',10);
-  mylcd.Print_String("L", RIGHT,119);  
+  tft.print("R2 FLOWRATE  : ");
+  tft.println(FR6*60);
+  tft.setCursor(134,128);
+  tft.println(" L/H");
+  tft.print("R2 TOTALIZER : ");
+  tft.println(TM6/1000);
+  tft.setCursor(134,136);
+  tft.println(" L");  
+  tft.println("");
+}
 
-  mylcd.Print_String("R2 FLOWRATE  : ", 2,137);
-  mylcd.Print_Number_Float(FR6*60,2 ,100 ,137 , '.', 0, ' ');
-  mylcd.Print_String("L/H", RIGHT,137);
-  mylcd.Print_String("R2 TOTALIZER : ", 2,146);
-  mylcd.Print_Number_Int(TM6/1000,100 ,146 ,0, ' ',10);
-  mylcd.Print_String("L", RIGHT,146);  
+void testTriangles() {
+    int           n, i, cx = tft.width()  / 2 - 1,
+                        cy = tft.height() / 2 - 1;
+
+    tft.fillScreen(BLACK);
+    n     = min(cx, cy);
+    for (i = 0; i < n; i += 5) {
+        tft.drawTriangle(
+            cx    , cy - i, // peak
+            cx - i, cy + i, // bottom left
+            cx + i, cy + i, // bottom right
+            tft.color565(0, 0, i));
+    }
+}
+
+void testFilledTriangles() {
+    int           i, cx = tft.width()  / 2 - 1,
+                     cy = tft.height() / 2 - 1;
+
+    tft.fillScreen(BLACK);
+    for (i = min(cx, cy); i > 10; i -= 5) {
+        tft.fillTriangle(cx, cy - i, cx - i, cy + i, cx + i, cy + i,
+                         tft.color565(0, i, i));
+        tft.drawTriangle(cx, cy - i, cx - i, cy + i, cx + i, cy + i,
+                         tft.color565(i, i, 0));
+    }
+}
+
+void CheckConnection(){    // check every 11s if connected to Blynk server
+  if(!Blynk.connected()){
+    online = 0;
+    yield();
+    if (WiFi.status() != WL_CONNECTED)
+    {
+      Serial.println("Not connected to Wifi! Connect...");
+      WiFi.begin(ssid, pass);
+      delay(1000); //give it some time to connect
+      if (WiFi.status() != WL_CONNECTED)
+      {
+        Serial.println("Cannot connect to WIFI!");
+        online = 0;
+      }
+      else
+      {
+        Serial.println("Connected to wifi!");
+      }
+    }
+    
+    if ( WiFi.status() == WL_CONNECTED && !Blynk.connected() )
+    {
+      Serial.println("Not connected to Blynk Server! Connecting..."); 
+      Blynk.connect();  // // It has 3 attempts of the defined BLYNK_TIMEOUT_MS to connect to the server, otherwise it goes to the enxt line 
+      if(!Blynk.connected()){
+        Serial.println("Connection failed!");
+        online = 0;
+      }
+      else
+      {
+        online = 1;
+      }
+    }
+  }
+  else{
+    Serial.println("Connected to Blynk server!"); 
+    online = 1;    
+  }
+}
+
+
+void myTimerEvent()
+{
+  // You can send any value at any time.
+  // Please don't send more that 10 values per second.
+  if (online == 1)
+  {
+    Blynk.virtualWrite(V40, millis() / 1000);    
+  }
+  else 
+  {
+    Serial.println("Working Offline!");  
+  }
+  
+  if (on == 0)
+  {
+    digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)    
+    on = 1;
+  }
+  else
+  {
+    digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW                  
+    on = 0;
+  }
+  Serial.println(millis() / 1000);
 }
 
 //main program
 void loop()
 {
-  ArduinoOTA.handle();
-  Blynk.run();
+  server.handleClient();
+  if(Blynk.connected()){Blynk.run();}
+  timer.run();
   lcdshow();
   flowmeter();
-  
 }
