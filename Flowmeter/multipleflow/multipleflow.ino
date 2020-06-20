@@ -225,7 +225,8 @@ void setup()
   Blynk.connect();
   CheckConnection();
   timer.setInterval(5000L, CheckConnection); 
-  timer.setInterval(3000L, myTimerEvent); 
+  timer.setInterval(3000L, myTimerEvent);
+  timer.setInterval(500L, blynkpush); 
  
   /*use mdns for host name resolution*/
   if (!MDNS.begin(host)) { //http://esp32.local
@@ -323,19 +324,22 @@ void setup()
 
 }
 
-//Blynk Read to Widget
-BLYNK_READ(FLOW1) {Blynk.virtualWrite(FLOW1,FR1*60);}
-BLYNK_READ(FLOW2) {Blynk.virtualWrite(FLOW2,FR2*60);}
-BLYNK_READ(FLOW3) {Blynk.virtualWrite(FLOW3,FR3*60);}
-BLYNK_READ(FLOW4) {Blynk.virtualWrite(FLOW4,FR4*60);}
-BLYNK_READ(FLOW5) {Blynk.virtualWrite(FLOW5,FR5*60);}
-BLYNK_READ(FLOW6) {Blynk.virtualWrite(FLOW6,FR6*60);}
-BLYNK_READ(TOT1) {Blynk.virtualWrite(TOT1,TM1/1000);}
-BLYNK_READ(TOT2) {Blynk.virtualWrite(TOT2,TM2/1000);}
-BLYNK_READ(TOT3) {Blynk.virtualWrite(TOT3,TM3/1000);}
-BLYNK_READ(TOT4) {Blynk.virtualWrite(TOT4,TM4/1000);}
-BLYNK_READ(TOT5) {Blynk.virtualWrite(TOT5,TM5/1000);}
-BLYNK_READ(TOT6) {Blynk.virtualWrite(TOT6,TM6/1000);}
+//Blynk Push to Widget
+void blynkpush()
+{
+Blynk.virtualWrite(FLOW1,FR1*60);
+Blynk.virtualWrite(FLOW2,FR2*60);
+Blynk.virtualWrite(FLOW3,FR3*60);
+Blynk.virtualWrite(FLOW4,FR4*60);
+Blynk.virtualWrite(FLOW5,FR5*60);
+Blynk.virtualWrite(FLOW6,FR6*60);
+Blynk.virtualWrite(TOT1,TM1/1000);
+Blynk.virtualWrite(TOT2,TM2/1000);
+Blynk.virtualWrite(TOT3,TM3/1000);
+Blynk.virtualWrite(TOT4,TM4/1000);
+Blynk.virtualWrite(TOT5,TM5/1000);
+Blynk.virtualWrite(TOT6,TM6/1000);
+}
 
 //flowmeter
 void flowmeter()
